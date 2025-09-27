@@ -10,6 +10,7 @@ const mongoose = require('mongoose');
 const { SitemapStream, streamToPromise } = require('sitemap');
 const { Readable } = require('stream');
 const { MongoClient, ServerApiVersion } = require('mongodb');
+const {loadModels} = require('./helpers/auth/checkForKyc')
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const passport = require('./configs/passport');
@@ -20,8 +21,7 @@ const compression = require('compression');
 const cors = require('cors'); 
 const cron = require('node-cron');
 const axios = require('axios');
-// const setUpWebSocketEvents = require('./events/learningSessionEvent')
-const { io: clientIo } = require('socket.io-client');
+
 
 
 
@@ -49,24 +49,6 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
 });
 
-// Dynamic URL structure 
-const links = [
-  { url: '/', changefreq: 'daily', priority: 1.0 },
-  { url: '/login', changefreq: 'weekly', priority: 0.8 },
-  { url: '/register', changefreq: 'weekly', priority: 0.8 },
-  { url: '/course', changefreq: 'weekly', priority: 0.9 },
-];
-
-
-
-// Sitemap route
-
-app.get('/sitemap.xml', (req, res) => {
-  const sitemap = new SitemapStream({ hostname: 'https://willykanga.com' });
-  res.header('Content-Type', 'application/xml');
-  const stream = Readable.from(links.map(link => ({ url: link.url, changefreq: link.changefreq, priority: link.priority })));
-  stream.pipe(sitemap).pipe(res);
-});
 
 // Apply rate limiter
 app.use(limiter);
@@ -76,13 +58,13 @@ app.use(limiter);
 app.use(helmet());
 app.use(helmet.contentSecurityPolicy({
   directives: {
-    imgSrc: ["'self'", "data:", "https://ik.imagekit.io"],
+    imgSrc: ["'self'", "data:", "https://ik.imagekit.io", "https://images.unsplash.com"],
   },
 }));
 
 // CORS configuration for Express
 app.use(cors({
-  origin: [`${origin}`,'https://ik.imagekit.io'],
+  origin: [`${origin}`,'https://ik.imagekit.io', 'https://images.unsplash.com'],
   credentials: true,
 }));
 
@@ -98,24 +80,18 @@ app.use(session({
     resave: false,
     saveUninitialized: false
 }));
-app.use(passport.initialize());
-app.use(passport.session());
+// app.use(passport.initialize());
+// app.use(passport.session());
 
 // serve vite frontend
-app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
 // Importing and using routers
 const AuthRouter = require('./routes/authRoute');
-const CourseRouter = require('./routes/courseRoute');
-const FileIngestionRouter = require('./routes/ingestionRoute');
-
 
 
 // API routes  
 app.use('/api/v1/auth', AuthRouter);
-app.use('/api/v1/file', FileIngestionRouter);
-app.use('/api/v1/course', CourseRouter);
-
 
 
 
@@ -142,7 +118,7 @@ const client = new MongoClient(process.env.MONGO_URL, {
 });
 
 
-setUpWebSocketEvents(io)
+// setUpWebSocketEvents(io)
 
 
 // MongoDB connection using Mongoose
@@ -166,6 +142,8 @@ const startApp = async () => {
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
+    await loadModels();
+    console.log('Models loaded')
     // Start the server
     server.listen(port, () => {
       console.log(`App is listening on port ${port}`);
@@ -176,15 +154,16 @@ const startApp = async () => {
 };
 
 // Ping self every 5 minutes to prevent idling
-cron.schedule('*/5 * * * *', async () => {
-  try {
-    await axios.get(`${origin}`);
-    console.log('Self-pinged to prevent sleep');
-  } catch (err) {
-    console.error('Self-ping failed:', err.message);
-  }
-});
+// cron.schedule('*/5 * * * *', async () => {
+//   try {
+//     await axios.get(`${origin}`);
+//     console.log('Self-pinged to prevent sleep');
+//   } catch (err) {
+//     console.error('Self-ping failed:', err.message);
+//   }
+// });
 
 startApp().catch(console.dir);
-require('./workers/chunkWorker');
-global.io = io;
+require('./workers/embeddingWorker');
+// require('./workers/chunkWorker');
+// global.io = io;
