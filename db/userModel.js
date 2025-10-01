@@ -36,7 +36,6 @@ const UserSchema = new mongoose.Schema({
             required: function() {
                 return !this.oauthProvider;
             },
-            minLength: [5, 'Password must be at least 5 characters'],
             validate: {
                 validator: function (value) {
                     // Skip validation if using OAuth (no password)
@@ -280,6 +279,11 @@ const UserSchema = new mongoose.Schema({
             default: 'en'
         },
 
+        // user embedding 
+        embedding: {
+            type: [String],
+            default: []
+        },
 
         // statistics 
         stats: {
@@ -317,6 +321,10 @@ const UserSchema = new mongoose.Schema({
 });
 
 
+const LOCK_TIME = 2 * 60 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 5;
+
+
 UserSchema.index({email: 1});
 UserSchema.index({role: 1});
 UserSchema.index({'serviceProvider.profession': 1});
@@ -340,95 +348,110 @@ UserSchema.methods.comparePassword = async function(password) {
 };
 
 
-UserSchema.methods.incrementLoginAttempts = function() {
-    if (this.lockUntil && this.lockUntil < Date.now()) {
-        return this.updateOne({
-            $set: {loginAttempts: 1},
-            $unset: {lockUntil: 1}
-        });
-    }
+// Virtual field
+UserSchema.virtual('isLocked').get(function () {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
+});
 
-    const updates = {$inc: {
-        loginAttempts: 1
-    }};
+// Reset attempts on successful login
+UserSchema.methods.resetLoginAttempts = function () {
+  return this.updateOne({
+    $set: { loginAttempts: 0 },
+    $unset: { lockUntil: 1 }
+  });
+};
 
-    // lock account after 5 attempts for 2 hours 
-
-    if (this.loginAttempts + 1 >= 5 && !this.isLocked) {
-        updates.$set = {
-            lockUntil: Date.now() + 2 * 60 * 60 * 1000 
-        }
-        return this.updateOne(updates);
-    }
-}
-
-UserSchema.methods.resetLoginAttempts = function() {
+// Increment attempts
+UserSchema.methods.incrementLoginAttempts = function () {
+  // If lock expired, reset first
+  if (this.lockUntil && this.lockUntil < Date.now()) {
     return this.updateOne({
-        $unset: {
-            loginAttempts: 1, lockUntil: 1
-        }
-    })
-}
+      $set: { loginAttempts: 1 },
+      $unset: { lockUntil: 1 }
+    });
+  }
+
+  const updates = { $inc: { loginAttempts: 1 } };
+
+  // If reached max attempts and not already locked → lock now
+  if (this.loginAttempts + 1 >= MAX_LOGIN_ATTEMPTS && !this.isLocked) {
+    updates.$set = { lockUntil: Date.now() + LOCK_TIME };
+  }
+
+  return this.updateOne(updates);
+};
+
 
 
 UserSchema.statics.findOrCreateOAuthUser = async function(profile, provider) {
-    try {
-        // find user by auth id 
+  try {
+    // find by OAuth id
+    let user = await this.findOne({
+      oauthId: profile.id,
+      oauthProvider: provider,
+    });
 
-        let user = await this.findOne({
-            oauthId: profile.id,
-            oauthProvider: provider
-        });
-
-        if (user) {
-            // update last login method and reset login attempts 
-            user.lastLoginMethod = 'oauth';
-            user.lastLogin = new Date();
-            await user.resetLoginAttempts();
-            await user.save();
-            return user
-        }
-
-        // if not found by auth id check by email 
-
-        user = await this.findOne({email: profile.emails[0].value});
-
-        if (user) {
-            // check if service provider email is verified 
-            if (user.role === 'service_provider' && user.serviceProvider?.verificationStatus !== 'approved') {
-                throw new CustomError.BadRequestError('Email is not verified yet')
-            }
-
-            // link existing account with oauth 
-            user.oauthProvider = provider;
-            user.oauthId = profile.id;
-            user.isEmailVerified = true;
-            user.lastLoginMethod = 'oauth';
-            user.lastLogin = new Date();
-
-            if (profile.name && !user.fullNames) {
-                user.fullNames = `${profile.name.givenName || ''} ${profile.name.familyName || ''}`.trim(); 
-            }
-
-
-            // create new user (only regular user can signup via oauth)
-            const newUser = new this({
-                email: profile.emails[0].value,
-                fullNames: `${profile.name.givenName || ''} ${profile.name.familyName || ''}`.trim(),
-                oauthProvider: provider,
-                oauthId: profile.id,
-                isEmailVerified: true,
-                lastLoginMethod: 'oauth',
-                role: 'user'
-            });
-
-            await newUser.save();
-            return newUser()
-        }
-    } catch (error) {
-        throw new CustomError.BadRequestError(`An error occured: ${error.message}`)
+    if (user) {
+      user.lastLoginMethod = 'oauth';
+      user.lastLogin = new Date();
+      if (typeof user.resetLoginAttempts === 'function') {
+        await user.resetLoginAttempts();
+      }
+      await user.save();
+      return user;
     }
+
+    // if not found, try by email
+    const email = profile.emails?.[0]?.value;
+    if (email) {
+      user = await this.findOne({ email });
+
+      if (user) {
+        // check provider-specific restrictions
+        if (
+          user.role === 'service_provider' &&
+          user.serviceProvider?.verificationStatus !== 'approved'
+        ) {
+          throw new CustomError.BadRequestError('Email is not verified yet');
+        }
+
+        // link OAuth details
+        user.oauthProvider = provider;
+        user.oauthId = profile.id;
+        user.isEmailVerified = true;
+        user.lastLoginMethod = 'oauth';
+        user.lastLogin = new Date();
+
+        if (profile.name && !user.fullNames) {
+          user.fullNames = `${profile.name.givenName || ''} ${profile.name.familyName || ''}`.trim();
+        }
+
+        await user.save();
+        return user;
+      }
+    }
+
+    // if not found at all, create new user (default role: user)
+    const newUser = new this({
+      email,
+      fullNames: `${profile.name?.givenName || ''} ${profile.name?.familyName || ''}`.trim(),
+      oauthProvider: provider,
+      oauthId: profile.id,
+      isEmailVerified: true,
+      lastLoginMethod: 'oauth',
+      role: 'user',
+      lastLogin: new Date(),
+    });
+
+    await newUser.save();
+    return newUser;
+
+
+  } catch (error) {
+    throw new CustomError.BadRequestError(`An error occurred: ${error.message}`);
+  }
 };
+
 
 
 module.exports = mongoose.model('User', UserSchema);

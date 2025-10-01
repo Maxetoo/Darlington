@@ -80,19 +80,22 @@ app.use(session({
     resave: false,
     saveUninitialized: false
 }));
-// app.use(passport.initialize());
-// app.use(passport.session());
+app.use(passport.initialize());
+app.use(passport.session());
 
 // serve vite frontend
 app.use(express.static(path.join(__dirname, 'client', 'dist')));
 
 // Importing and using routers
 const AuthRouter = require('./routes/authRoute');
+const UserRouter = require('./routes/userRoute')
+const UploadFileRouter = require('./routes/uploadFileRoute');
 
 
 // API routes  
 app.use('/api/v1/auth', AuthRouter);
-
+app.use('/api/v1/user', UserRouter);
+app.use('/api/v1/upload', UploadFileRouter);
 
 
 // Serve the frontend application
@@ -165,5 +168,6 @@ const startApp = async () => {
 
 startApp().catch(console.dir);
 require('./workers/embeddingWorker');
+require('./workers/contentReviewWorker');
 // require('./workers/chunkWorker');
 // global.io = io;

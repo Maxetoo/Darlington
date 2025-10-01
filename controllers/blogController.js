@@ -1,19 +1,26 @@
 const BlogPost = require('../db/blogPostModel');
 const User = require('../db/userModel');
+const CustomError = require('../errors');
 
-// @desc    Create new blog post
-// @route   POST /api/blogs
-// @access  Private (Users only)
+
 const createBlog = async (req, res) => {
+  const {userId} = req.user
+
+  if (userId) {
+    throw new CustomError.BadRequestError(`Please sign in`)
+  }
+
   const {
     title,
-    excerpt,
     content,
+    featuredImage,
+    images,
+    videos,
     category,
     tags,
     culturalAspects,
     metaTitle,
-    metaDescription
+    metaDescription,
   } = req.body;
 
   // Generate slug from title
@@ -21,23 +28,18 @@ const createBlog = async (req, res) => {
     .replace(/[^\w ]+/g, '')
     .replace(/ +/g, '-');
 
-  // Handle uploaded images
-  let images = [];
-  // if (req.files) {
-  //   images = req.files.map(file => file.path);
-  // }
 
   const blogPost = await BlogPost.create({
-    author: req.user.id,
+    author: userId,
     title,
     slug,
-    excerpt,
     content,
     category,
     tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
     culturalAspects,
     images,
-    featuredImage: images[0] || null,
+    videos,
+    featuredImage: featuredImage || images[0] || null,
     metaTitle,
     metaDescription,
     status: 'pending_review' // All posts need approval
@@ -57,9 +59,7 @@ const createBlog = async (req, res) => {
   });
 };
 
-// @desc    Get all blog posts
-// @route   GET /api/blogs
-// @access  Public
+
 const getBlogs = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
@@ -91,7 +91,7 @@ const getBlogs = asyncHandler(async (req, res) => {
     .sort({ publishedAt: -1, createdAt: -1 })
     .limit(limit * 1)
     .skip((page - 1) * limit)
-    .select('-content'); // Exclude full content for list view
+    .select('-content');
 
   const total = await BlogPost.countDocuments(query);
 
@@ -106,9 +106,7 @@ const getBlogs = asyncHandler(async (req, res) => {
   });
 });
 
-// @desc    Get single blog post
-// @route   GET /api/blogs/:id
-// @access  Public
+
 const getBlog = asyncHandler(async (req, res) => {
   const blog = await BlogPost.findById(req.params.id)
     .populate('author', 'fullNames profileImage location')

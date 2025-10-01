@@ -6,13 +6,8 @@ const {createCookies} = require('../handlers/authHandler')
 const { v4: uuidv4 } = require('uuid');
 const {checkForKyc} = require('../helpers/auth/checkForKyc')
 const {serviceProviderErrorLogs} = require('../helpers/auth/errorLogs')
-const getEmbedding = async (...args) => {
-const { getEmbedding } = await import('../services/transformer.mjs');
-  return getEmbedding(...args);
-};
-// const generateToken = require('../utils/generateToken');
+const embeddingQueue = require('../events/embeddingEvent');
 // const { sendEmail, emailTemplates } = require('../utils/email');
-
 
 
 const register = async (req, res) => {
@@ -20,6 +15,10 @@ const register = async (req, res) => {
 
   if (!fullNames || !email || !password) {
     throw new CustomError.BadRequestError('Please fill in full names, email, and password');
+  }
+
+  if (role === 'admin') {
+    throw new CustomError.BadRequestError('Not authorised')
   }
 
   // Check if user already exists
@@ -78,7 +77,7 @@ const register = async (req, res) => {
       pricing,
       portfolio,
       profileImage,
-      language,
+      language, 
       phone,
     };
 
@@ -88,16 +87,18 @@ const register = async (req, res) => {
   // Create user
   const user = await User.create(userData);
 
-  // add background queue for embedding 
-  await embeddingQueue.add('generate-embedding', {
-    userId: user._id.toString(),
-    text: `Fullnames: ${user.fullNames}
-     Email: ${user.email} 
-     Location: ${user.location || ''} 
-     Service: ${user?.serviceProvider?.profession || ''}
-     Service Description: ${user?.serviceProvider?.bio || ''}
-     `,
-  });
+  if (user.role === 'service_provider') {
+    // add background queue for embedding for service providers 
+    await embeddingQueue.add('generate-embedding', {
+        userId: user._id.toString(),
+        text: `Fullnames: ${user.fullNames}
+        Email: ${user.email} 
+        Location: ${user.location || ''} 
+        Service: ${user?.serviceProvider?.profession || ''}
+        Service Description: ${user?.serviceProvider?.bio || ''}
+        `,
+    });
+  }
 
   const token = {
     userId: user._id,
@@ -113,6 +114,8 @@ const register = async (req, res) => {
         : 'Check your email for verification'
         }`,
     });
+
+
 };
 
 

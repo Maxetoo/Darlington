@@ -2,21 +2,27 @@ const User = require('../db/userModel')
 const CustomError = require('../errors')
 const { StatusCodes } = require('http-status-codes')
 
+
+
+
+// get me 
 const myProfile = async(req, res) => {
     const {userId} = req.user
-    const user = await User.findOne({_id: userId}).select('-password')
+    const user = await User.findOne({_id: userId}).select('-password -embedding')
     if (!user) {
         throw new CustomError.BadRequestError('User not found')
     }
-
     res.status(StatusCodes.OK).json({user}) 
 }
 
+
+// @admin 
+// get all users 
 const getUsers = async(req, res) => {
 
     const {
             search,
-            limit = 10,
+            limit = 5,
             page = 1,
             select
         } = req.query
@@ -35,11 +41,18 @@ const getUsers = async(req, res) => {
                     $regex: search || '',
                     $options: 'i'
                 }
+            },
+            {
+                role: {
+                    $regex: search || '',
+                    $options: 'i'
+                }
             }
         ]
-        }).select(select)
+        })
             .limit(parseInt(limit))
             .skip(parseInt(limit) * (parseInt(page) - 1))
+            .select(`-embedding -password`)
 
         const totalPages = Math.ceil(totalUsers / limit);
         
@@ -54,14 +67,15 @@ const getUsers = async(req, res) => {
         })
 }
 
+
+// @admin 
+// get single user 
 const getSingleUser = async(req, res) => {
     const {id} = req.params
-
     if (!id) {
         throw new CustomError.NotFoundError('No id found')
     }
-    const user = await User.findOne({_id: id}).populate('-password')
-
+    const user = await User.findOne({_id: id}).select('-password -embedding')
     if (!user) {
         throw new CustomError.BadRequestError('No user found')
     }
@@ -69,8 +83,9 @@ const getSingleUser = async(req, res) => {
 }
 
 
+// @admin 
+// update single user 
 const updateUser = async(req, res) => {
-
     const { id } = req.params
     if (!id) {
         throw new CustomError.BadRequestError(`User id must be specified`)
@@ -81,7 +96,7 @@ const updateUser = async(req, res) => {
     }, req.body, {
         new: true,
         runValidators: true
-    })
+    }).select('-password -embedding')
 
     if (!user) {
         throw new CustomError.BadRequestError('No user found')
@@ -90,49 +105,25 @@ const updateUser = async(req, res) => {
 }
 
 
-
-const getAllUsersCount = async(req, res) => {
-    const users = await User.find({})
-    res.status(StatusCodes.OK).json({
-        totalCount: users.length
-    })
-};
-
-
-const getAllAdmins = async(req, res) => {
-    const users = await User.find({ role: 'admin' })
-    res.status(StatusCodes.OK).json({ users })
-}
-
-
-const manageRole = async(req, res) => {
-    const getId = req.user.userId
-    const { id } = req.params
-
+// @admin 
+// delete single user 
+const deleteUser = async(req, res) => {
+    const {id} = req.params
 
     if (!id) {
-        throw new CustomError.NotFoundError('No id found')
+        throw new CustomError.BadRequestError(`User id must be specified`)
     }
 
-    
-    const findSuperAdmin = await User.findOne({})
-    if (findSuperAdmin._id.toString() === getId) {
-        await User.findOneAndUpdate({
-            _id: id
-        }, {
-            isAdmin: false
-        }, {
-            new: true,
-            runValidators: true
-        })
-    } else {
-        throw new CustomError.BadRequestError('Not authorised for this request')
+    const user = await User.findOneAndDelete({
+        _id: id
+    })
+
+    if (!user) {
+        throw new CustomError.BadRequestError('No user found')
     }
 
-
-    res.status(StatusCodes.OK).json({ msg: "User removed from admin" })
+    res.status(StatusCodes.OK).json({msg: `User deleted successfully` })
 }
-
 
 
 
@@ -140,17 +131,9 @@ const manageRole = async(req, res) => {
 
 module.exports = {
     myProfile,
-    getAllUsersCount,
-    authorizeUser,
-    getUserAddresses,
-    updateUserAddressDetails,
-    addAddressDetails,
-    editSingleAddress,
-    deleteSingleAddress,
-    clearAllAddresses,
-    getAllAdmins,
-    updateUser,
     getUsers,
     getSingleUser,
-    manageAdmins
+    updateUser,
+    deleteUser,
+
 }

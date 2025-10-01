@@ -3,6 +3,12 @@ const User = require('../db/userModel');
 const {StatusCodes} = require('http-status-codes')
 const CustomError = require('../errors')
 
+
+// const searchServiceProvider = async (req, res) => {
+
+// }
+
+
 const createBooking = async (req, res) => {
   try {
    
@@ -417,5 +423,5 @@ module.exports = {
   providerGetAllBookings,
   getSingleBooking,
   updateBooking,
-  getBookingStats
+  getBookingStats,
 };

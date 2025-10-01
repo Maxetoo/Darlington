@@ -21,13 +21,14 @@ passport.deserializeUser(async (id, done) => {
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "/api/v1/auth/google/callback", // Fixed: Added /api/v1 prefix
+    callbackURL: "/api/v1/auth/google/callback", 
     passReqToCallback: true,
-}, async (req, accessToken, refreshToken, profile, done) => { // Fixed: Added req parameter
+}, async (req, accessToken, refreshToken, profile, done) => { 
     try {
-        // console.log(profile);
+        console.log(profile);
         // Use the static method we created in the User model
         const user = await User.findOrCreateOAuthUser(profile, 'google');
+        console.log('New user: ', user)
         return done(null, user);
     } catch (error) {
         console.error('Google OAuth error:', error);

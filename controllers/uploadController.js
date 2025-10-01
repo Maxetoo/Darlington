@@ -15,7 +15,7 @@ const ALLOWED_MIME_TYPES = [
 const uploadFile = async (req, res) => {
   try {
     if (!req.files || Object.keys(req.files).length === 0) {
-      return res.status(400).json({ error: 'No files were uploaded.' });
+      return res.status(400).json({ msg: 'No files were uploaded.' });
     }
 
     const files = Array.isArray(req.files.file) ? req.files.file : [req.files.file];
@@ -23,7 +23,7 @@ const uploadFile = async (req, res) => {
 
     for (const file of files) {
       if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-        return res.status(400).json({ error: 'Only image, PDF, DOC, and DOCX files are allowed.' });
+        return res.status(400).json({ msg: 'Only image, PDF, DOC, and DOCX files are allowed.' });
       }
 
       const fileBuffer = await fs.readFile(file.tempFilePath);
@@ -47,7 +47,7 @@ const uploadFile = async (req, res) => {
     res.status(200).json({ success: true, files: uploadResults });
   } catch (error) {
     console.error('Upload error:', error.message);
-    res.status(500).json({ error: 'File upload failed. ' + error.message });
+    res.status(500).json({ msg: 'File upload failed. ' + error.message });
   }
 };
 

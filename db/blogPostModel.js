@@ -34,6 +34,7 @@ const BlogPostSchema = new mongoose.Schema({
     },
 
     featuredImage: String,
+
     images: [String],
     videos: [String],
 
@@ -56,12 +57,7 @@ const BlogPostSchema = new mongoose.Schema({
         default: 'draft'
     },
 
-    publishedAt: Date,
-
-    // moderation 
-    moderationNotes: String,
-    metaDescription: String,
-
+  
     // engagement 
     views: {
         type: Number,
@@ -157,7 +153,12 @@ const BlogPostSchema = new mongoose.Schema({
       instagram: String,
       twitter: String
     }
-  }
+  },
+
+  embedding: {
+    type: [String],
+    default: []
+  },
 }, {
     timestamps: true
 })
