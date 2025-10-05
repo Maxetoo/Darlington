@@ -1,12 +1,15 @@
 const BlogPost = require('../db/blogPostModel');
 const User = require('../db/userModel');
 const CustomError = require('../errors');
+const {StatusCodes} = require('http-status-codes')
+const contentReviewQueue = require('../events/contentReviewEvent');
+const reviewContent = require('../helpers/content/reviewContent');
 
 
 const createBlog = async (req, res) => {
   const {userId} = req.user
 
-  if (userId) {
+  if (!userId) {
     throw new CustomError.BadRequestError(`Please sign in`)
   }
 
@@ -24,7 +27,7 @@ const createBlog = async (req, res) => {
   } = req.body;
 
   // Generate slug from title
-  const slug = title.toLowerCase()
+  const slug = title?.toLowerCase()
     .replace(/[^\w ]+/g, '')
     .replace(/ +/g, '-');
 
@@ -35,32 +38,141 @@ const createBlog = async (req, res) => {
     slug,
     content,
     category,
-    tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
+    tags,
     culturalAspects,
     images,
     videos,
-    featuredImage: featuredImage || images[0] || null,
+    featuredImage: featuredImage || images?.[0] || null,
     metaTitle,
     metaDescription,
-    status: 'pending_review' // All posts need approval
+    status: 'pending_review'
   });
 
   // Update user stats
-  await User.findByIdAndUpdate(req.user.id, {
+  await User.findByIdAndUpdate(userId, {
     $inc: { 'stats.blogPosts': 1 }
   });
 
   const populatedBlog = await BlogPost.findById(blogPost._id)
     .populate('author', 'fullNames profileImage');
 
-  res.status(201).json({
+  await contentReviewQueue.add('content-review-queue', {
+        blogId: blogPost._id,
+        text: `
+          title: ${blogPost.title},
+          content: ${blogPost.content}`,
+    });
+
+  res.status(StatusCodes.CREATED).json({
     success: true,
     blog: populatedBlog
   });
 };
 
+const getSingleBlog = async (req, res) => {
+  const { id } = req.params;
+  
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.max(1, Math.min(50, parseInt(req.query.limit) || 4));
+  const skip = (page - 1) * limit;
 
-const getBlogs = asyncHandler(async (req, res) => {
+  if (!id) {
+    throw new CustomError.BadRequestError('Blog id is required');
+  }
+
+  // Fetch blog without populating all comments
+  const blog = await BlogPost.findById(id)
+    .populate('author', 'fullNames profileImage')
+    .select('-comments'); // Exclude comments initially
+
+  if (!blog || blog.status !== 'published') {
+    throw new CustomError.NotFoundError('Blog post not found');
+  }
+
+  // Increment view count
+  blog.views += 1;
+  await blog.save();
+
+  // Fetch paginated comments separately
+  const blogWithComments = await BlogPost.findById(id)
+    .select('comments commentCount')
+    .populate({
+      path: 'comments.user',
+      select: 'fullNames profileImage'
+    })
+    .lean();
+
+  // Slice comments for pagination (newest first)
+  const allComments = blogWithComments.comments || [];
+  const totalComments = blogWithComments.commentCount || allComments.length;
+  const totalLikes = blog.likeCount || 0;
+  const paginatedComments = allComments
+    .slice()
+    .reverse() // Show newest first
+    .slice(skip, skip + limit);
+
+  // Check if user has liked this post
+  let hasLiked = false;
+  if (req.user) {
+    hasLiked = blog.likes.find(like => like.user.toString() === req.user.userId);
+  }
+
+  res.status(StatusCodes.OK).json({
+    blog: {
+      ...blog.toObject(),
+      hasLiked,
+      comments: paginatedComments,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalComments / limit),
+        totalComments,
+        totalLikes,
+        commentsPerPage: limit,
+        hasNextPage: skip + limit < totalComments,
+        hasPrevPage: page > 1
+      }
+    }
+  });
+};
+
+// const getSingleBlog = async(req, res) => {
+//   const {id} = req.params;
+
+
+//   if (!id) {
+//     throw new CustomError.BadRequestError('Blog id is required')
+//   }
+
+//   const blog = await BlogPost.findById(id)
+//     .populate('author', 'fullNames profileImage')
+//     .populate('comments.user', 'fullNames profileImage');
+
+//   if (!blog || blog.status !== 'published') {
+//     throw new CustomError.NotFoundError('Blog post not found')
+//   }
+
+//   // Increment view count
+//   blog.views += 1;
+//   await blog.save();
+
+//   // Check if user has liked this post
+//   let hasLiked = false;
+//   if (req.user) {
+//     hasLiked = blog.likes.some(like => like.user.toString() === req.user.userId);
+//   }
+
+
+//   res.status(StatusCodes.OK).json({
+//     blog: {
+//       ...blog.toObject(),
+//       hasLiked
+//     }
+//   })
+
+// };
+
+
+const getAllBlogs = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const category = req.query.category;
@@ -68,7 +180,7 @@ const getBlogs = asyncHandler(async (req, res) => {
   const tags = req.query.tags;
 
   // Build query
-  const query = { status: 'published' };
+  const query = {  };
   
   if (category) {
     query.category = category;
@@ -78,7 +190,6 @@ const getBlogs = asyncHandler(async (req, res) => {
     query.$or = [
       { title: { $regex: search, $options: 'i' } },
       { content: { $regex: search, $options: 'i' } },
-      { excerpt: { $regex: search, $options: 'i' } }
     ];
   }
   
@@ -104,92 +215,30 @@ const getBlogs = asyncHandler(async (req, res) => {
       total
     }
   });
-});
+};
 
 
-const getBlog = asyncHandler(async (req, res) => {
-  const blog = await BlogPost.findById(req.params.id)
-    .populate('author', 'fullNames profileImage location')
-    .populate('comments.user', 'fullNames profileImage');
+const deleteBlog = async (req, res) => {
+  const {id} = req.params;
+  const {userId} = req.user || {}
 
-  if (!blog || blog.status !== 'published') {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
+   if (!id) {
+    throw new CustomError.BadRequestError('Blog id is required')
   }
 
-  // Increment view count
-  blog.views += 1;
-  await blog.save();
-
-  // Check if user has liked this post
-  let hasLiked = false;
-  if (req.user) {
-    hasLiked = blog.likes.some(like => like.user.toString() === req.user.id);
+  if (!userId) {
+    throw new CustomError.BadRequestError('Please sign in')
   }
 
-  res.json({
-    success: true,
-    blog: {
-      ...blog.toObject(),
-      hasLiked
-    }
-  });
-});
 
-// @desc    Update blog post
-// @route   PUT /api/blogs/:id
-// @access  Private
-const updateBlog = asyncHandler(async (req, res) => {
-  const blog = await BlogPost.findById(req.params.id);
-
+  const blog = await BlogPost.findById(id);
   if (!blog) {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
+    throw new CustomError.NotFoundError('Blog not found')
   }
 
   // Check ownership
-  if (blog.author.toString() !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied'
-    });
-  }
-
-  const updatedBlog = await BlogPost.findByIdAndUpdate(
-    req.params.id,
-    { ...req.body, status: 'pending_review' }, // Re-submit for review
-    { new: true, runValidators: true }
-  ).populate('author', 'fullNames profileImage');
-
-  res.json({
-    success: true,
-    blog: updatedBlog
-  });
-});
-
-// @desc    Delete blog post
-// @route   DELETE /api/blogs/:id
-// @access  Private
-const deleteBlog = asyncHandler(async (req, res) => {
-  const blog = await BlogPost.findById(req.params.id);
-
-  if (!blog) {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
-  }
-
-  // Check ownership
-  if (blog.author.toString() !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied'
-    });
+  if (blog.author.toString() !== userId && req.user.role !== 'admin') {
+    throw new CustomError.BadRequestError('Unauthorised for this request')
   }
 
   await blog.deleteOne();
@@ -199,153 +248,185 @@ const deleteBlog = asyncHandler(async (req, res) => {
     $inc: { 'stats.blogPosts': -1 }
   });
 
-  res.json({
-    success: true,
-    message: 'Blog post deleted'
-  });
-});
+  res.status(StatusCodes.OK).json({msg: 'Blog deleted successfully'});
+};
 
-// @desc    Like/Unlike blog post
-// @route   POST /api/blogs/:id/like
-// @access  Private
-const likeBlog = asyncHandler(async (req, res) => {
-  const blog = await BlogPost.findById(req.params.id);
 
-  if (!blog) {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
+const likeBlog = async (req, res) => {
+  const {id} = req.params;
+  const {userId} = req.user || {}
+
+   if (!id) {
+    throw new CustomError.BadRequestError('Blog id is required')
   }
 
-  const likeIndex = blog.likes.findIndex(
-    like => like.user.toString() === req.user.id
+  if (!userId) {
+    throw new CustomError.BadRequestError('Please sign in')
+  }
+
+  const blog = await BlogPost.findById(id);
+
+  if (!blog) {
+    throw new CustomError.NotFoundError('Blog post not found')
+  }
+
+
+  const findLikeIndex = blog.likes.findIndex(
+    like => like?.user?.toString() === userId
   );
 
-  if (likeIndex > -1) {
-    // Unlike
-    blog.likes.splice(likeIndex, 1);
-    blog.likeCount -= 1;
+  if (findLikeIndex > -1) {
+    // unlike or remove from like array 
+    blog.likes.remove(blog.likes[findLikeIndex])
+    blog.likeCount -= 1
   } else {
-    // Like
-    blog.likes.push({ user: req.user.id });
-    blog.likeCount += 1;
+    // like or add to like array
+    blog.likes.push({user: userId})
+    blog.likeCount += 1
   }
 
-  await blog.save();
+  await blog.save()
 
-  res.json({
-    success: true,
-    liked: likeIndex === -1,
+  res.status(StatusCodes.OK).json({
+    liked: findLikeIndex === -1,
     likeCount: blog.likeCount
-  });
-});
+  })
+};
 
-// @desc    Add comment to blog post
-// @route   POST /api/blogs/:id/comments
-// @access  Private
-const addComment = asyncHandler(async (req, res) => {
-  const { content } = req.body;
-  
-  const blog = await BlogPost.findById(req.params.id);
+const addComment = async (req, res) => {
+  const { comment } = req.body;
+  const { id } = req.params;
+  const { userId } = req.user || {};
 
-  if (!blog) {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
+  // Early validation (no DB calls yet)
+  if (!id) { 
+    throw new CustomError.BadRequestError('Blog id is required');
   }
 
-  const comment = {
-    user: req.user.id,
-    content,
+  if (!comment) {
+    throw new CustomError.BadRequestError('Comment is required');
+  }
+
+  // Run all checks in parallel for maximum speed
+  const [checkContent, blog, user] = await Promise.all([
+    reviewContent(comment),
+    BlogPost.findById(id).select('_id comments commentCount status'),
+    // Fetch user data now so we have it ready
+    req.user ? User.findById(userId).select('fullNames profileImage').lean() : null
+  ]);
+
+  // Check blog existence
+  if (!blog) {
+    throw new CustomError.NotFoundError('Blog post not found');
+  }
+
+  // Check content suitability
+  if (!checkContent?.suitable) {
+    throw new CustomError.BadRequestError(
+      `Comment rejected: ${checkContent?.reason || 'Inappropriate content'}`
+    );
+  }
+
+  // Create and add new comment
+  const newComment = {
+    user: userId,
+    content: comment,
     createdAt: new Date()
   };
 
-  blog.comments.push(comment);
+  blog.comments.push(newComment);
   blog.commentCount += 1;
+  
   await blog.save();
 
-  const updatedBlog = await BlogPost.findById(req.params.id)
-    .populate('comments.user', 'fullNames profileImage');
+  // Get the saved comment with its generated _id
+  const savedComment = blog.comments[blog.comments.length - 1];
 
-  res.json({
-    success: true,
-    comment: updatedBlog.comments[updatedBlog.comments.length - 1]
+  // Return with user data we already fetched
+  res.status(StatusCodes.OK).json({
+    comment: {
+      _id: savedComment._id,
+      user: user,
+      content: savedComment.content,
+      createdAt: savedComment.createdAt
+    }
   });
-});
+};
 
-// @desc    Delete comment
-// @route   DELETE /api/blogs/:id/comments/:commentId
-// @access  Private
-const deleteComment = asyncHandler(async (req, res) => {
-  const blog = await BlogPost.findById(req.params.id);
 
-  if (!blog) {
-    return res.status(404).json({
-      success: false,
-      message: 'Blog post not found'
-    });
+const deleteComment = async (req, res) => {
+  const {id} = req.params;
+  const {commentId} = req.query
+  const {userId} = req.user || {}
+
+
+  if (!id) {
+    throw new CustomError.BadRequestError('Blog id is required')
   }
 
-  const comment = blog.comments.id(req.params.commentId);
+  const blog = await BlogPost.findById(id);
+
+  if (!blog) {
+    throw new CustomError.NotFoundError('Blog post not found')
+  }
+
+  if (!commentId) {
+    throw new CustomError.BadRequestError('Comment id is required')
+  }
+
+  const comment = blog.comments.id(commentId);
   
   if (!comment) {
-    return res.status(404).json({
-      success: false,
-      message: 'Comment not found'
-    });
+    throw new CustomError.NotFoundError('Comment not found')
   }
 
   // Check if user owns comment or is admin
-  if (comment.user.toString() !== req.user.id && req.user.role !== 'admin') {
-    return res.status(403).json({
-      success: false,
-      message: 'Access denied'
-    });
+  if (comment.user.toString() !== userId && req.user.role !== 'admin') {
+    throw new CustomError.BadRequestError('Unauthorised for this request')
   }
 
   comment.deleteOne();
   blog.commentCount -= 1;
   await blog.save();
 
-  res.json({
-    success: true,
-    message: 'Comment deleted'
+  res.status(StatusCodes.OK).json({
+    msg: 'Comment deleted'
   });
-});
 
-// @desc    Get featured blog posts
-// @route   GET /api/blogs/featured
-// @access  Public
-const getFeaturedBlogs = asyncHandler(async (req, res) => {
-  const blogs = await BlogPost.find({
-    status: 'published',
-    isFeatured: true,
-    $or: [
-      { featuredUntil: { $exists: false } },
-      { featuredUntil: { $gte: new Date() } }
-    ]
-  })
-  .populate('author', 'fullNames profileImage')
-  .sort({ publishedAt: -1 })
-  .limit(5)
-  .select('-content');
 
-  res.json({
-    success: true,
-    blogs
-  });
-});
+};
+
+
+
+
+// // @desc    Get featured blog posts
+// // @route   GET /api/blogs/featured
+// // @access  Public
+// const getFeaturedBlogs = asyncHandler(async (req, res) => {
+//   const blogs = await BlogPost.find({
+//     status: 'published',
+//     isFeatured: true,
+//     $or: [
+//       { featuredUntil: { $exists: false } },
+//       { featuredUntil: { $gte: new Date() } }
+//     ]
+//   })
+//   .populate('author', 'fullNames profileImage')
+//   .sort({ publishedAt: -1 })
+//   .limit(5)
+//   .select('-content');
+
+//   res.json({
+//     success: true,
+//     blogs
+//   });
+// });
 
 module.exports = {
   createBlog,
-  getBlogs,
-  getBlog,
-  updateBlog,
+  getAllBlogs,
   deleteBlog,
+  getSingleBlog,
   likeBlog,
   addComment,
-  deleteComment,
-  getFeaturedBlogs
 };

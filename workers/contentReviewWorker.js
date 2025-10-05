@@ -1,13 +1,26 @@
 const { Worker } = require('bullmq');
 const bullConnection = require('../configs/bullMqConfig');
-const User = require('../db/userModel');
+const Blog = require('../db/blogPostModel')
+const contentReviewer = require('../helpers/content/reviewContent')
 
 // Worker
 const worker = new Worker('content-review-queue', async job => {
-    const { userId, text } = job.data;
+    const { blogId, text } = job.data;
 
+    const contentReviewResult = await contentReviewer(text);
+    const blog = await Blog.findById(blogId)
     
-    return { status: 'Content has been reviewed'};
+    if (contentReviewResult) {
+        if (contentReviewResult?.suitable) {
+          blog.status = 'published'
+        } else {
+          blog.status = 'rejected'
+          blog.moderationNotes = contentReviewResult?.reason || ''
+        }
+    }
+
+  await blog.save();
+  return { status: blog.status, blogId: blog._id };
 
 
 }, { connection: bullConnection });

@@ -13,7 +13,7 @@ const BlogPostSchema = new mongoose.Schema({
     title: {
         type: String,
         required: [true, 'Title is required'],
-        maxLength: 20,
+        maxLength: 50,
         trim: true,
         unique: true
     },
@@ -30,7 +30,7 @@ const BlogPostSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Content is required'],
         minLength: 50,
-        maxLength: 1200,
+        maxLength: 2000,
     },
 
     featuredImage: String,
@@ -72,12 +72,13 @@ const BlogPostSchema = new mongoose.Schema({
         likedAt: {
             type: Date,
             default: Date.now
-        },
-        likeCount: {
-            type: Number,
-            default: 0
         }
     }],
+
+    likeCount: {
+            type: Number,
+            default: 0
+    },
 
     // African Culture Focus
     culturalAspects: {

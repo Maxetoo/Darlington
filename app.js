@@ -90,12 +90,14 @@ app.use(express.static(path.join(__dirname, 'client', 'dist')));
 const AuthRouter = require('./routes/authRoute');
 const UserRouter = require('./routes/userRoute')
 const UploadFileRouter = require('./routes/uploadFileRoute');
+const BlogRouter = require('./routes/blogRoute');
 
 
 // API routes  
 app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/upload', UploadFileRouter);
+app.use('/api/v1/blog', BlogRouter);
 
 
 // Serve the frontend application

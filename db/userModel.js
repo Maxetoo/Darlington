@@ -202,14 +202,14 @@ const UserSchema = new mongoose.Schema({
 
         verificationNotes: String,
         verifiedAt: Date,
+        },
 
         profileImage: {
             type: String,
             required: function() {
                     return this.role === 'service_provider'
             }
-        }
-    },
+        },
 
         phone: {
             type: String,
@@ -435,6 +435,7 @@ UserSchema.statics.findOrCreateOAuthUser = async function(profile, provider) {
     const newUser = new this({
       email,
       fullNames: `${profile.name?.givenName || ''} ${profile.name?.familyName || ''}`.trim(),
+      profileImage: `${profile.photos?.[0]?.value}`,
       oauthProvider: provider,
       oauthId: profile.id,
       isEmailVerified: true,
