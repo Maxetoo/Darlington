@@ -135,47 +135,14 @@ const getSingleBlog = async (req, res) => {
   });
 };
 
-// const getSingleBlog = async(req, res) => {
-//   const {id} = req.params;
-
-
-//   if (!id) {
-//     throw new CustomError.BadRequestError('Blog id is required')
-//   }
-
-//   const blog = await BlogPost.findById(id)
-//     .populate('author', 'fullNames profileImage')
-//     .populate('comments.user', 'fullNames profileImage');
-
-//   if (!blog || blog.status !== 'published') {
-//     throw new CustomError.NotFoundError('Blog post not found')
-//   }
-
-//   // Increment view count
-//   blog.views += 1;
-//   await blog.save();
-
-//   // Check if user has liked this post
-//   let hasLiked = false;
-//   if (req.user) {
-//     hasLiked = blog.likes.some(like => like.user.toString() === req.user.userId);
-//   }
-
-
-//   res.status(StatusCodes.OK).json({
-//     blog: {
-//       ...blog.toObject(),
-//       hasLiked
-//     }
-//   })
-
-// };
 
 
 const getAllBlogs = async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 10;
   const category = req.query.category;
+  const status = req.query.status;
+  const createdBy = req.query.createdBy;
   const search = req.query.search;
   const tags = req.query.tags;
 
@@ -184,6 +151,14 @@ const getAllBlogs = async (req, res) => {
   
   if (category) {
     query.category = category;
+  }
+
+  if (status) {
+    query.status = status;
+  }
+
+  if (createdBy) {
+    query.author = createdBy;
   }
   
   if (search) {
@@ -216,6 +191,74 @@ const getAllBlogs = async (req, res) => {
     }
   });
 };
+
+
+
+const updateBlog = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user?.userId;
+  let message;
+
+  if (!id) {
+    throw new CustomError.BadRequestError('Blog ID is required');
+  }
+
+  if (!userId) {
+    throw new CustomError.BadRequestError('Please sign in');
+  }
+
+  const blog = await BlogPost.findById(id);
+  if (!blog) {
+    throw new CustomError.NotFoundError('Blog not found');
+  }
+
+  // Check ownership
+  if (blog.author.toString() !== userId && req.user.role !== 'admin') {
+    throw new CustomError.UnauthorizedError('Unauthorized for this request');
+  }
+
+  // Handle slug generation only if title exists
+  const title = req.body.title || blog.title;
+  const slug = title
+    .toLowerCase()
+    .replace(/[^\w ]+/g, '')
+    .replace(/ +/g, '-');
+
+  // Admin can feature blog
+  if (req.user.role === 'admin' && req.body.isFeatured) {
+    blog.isFeatured = true;
+    blog.featuredUntil = req.body.featuredUntil || null;
+  }
+
+  // Re-review content if title or content updated
+  if (req.body.title || req.body.content) {
+    blog.title = req.body.title || blog.title;
+    blog.content = req.body.content || blog.content;
+    blog.slug = slug;
+
+    await contentReviewQueue.add('content-review-queue', {
+      blogId: blog._id,
+      text: `title: ${blog.title}, content: ${blog.content}`,
+    });
+
+    blog.status = 'pending_review';
+    message = 'Blog update is under review';
+  }
+
+  // Apply other updatable fields safelyxs
+  Object.keys(req.body).forEach((key) => {
+    if (!['title', 'content', 'isFeatured', 'featuredUntil'].includes(key)) {
+      blog[key] = req.body[key];
+    }
+  });
+
+  await blog.save();
+
+  res
+    .status(StatusCodes.OK)
+    .json({ msg: message || 'Blog updated successfully'});
+};
+
 
 
 const deleteBlog = async (req, res) => {
@@ -392,41 +435,39 @@ const deleteComment = async (req, res) => {
   res.status(StatusCodes.OK).json({
     msg: 'Comment deleted'
   });
-
-
 };
 
 
+const getFeaturedBlogs = async (req, res) => {
+
+  const blogs = await BlogPost.find({
+    status: 'published',
+    isFeatured: true,
+    $or: [
+      { featuredUntil: { $exists: false } },
+      { featuredUntil: { $gte: new Date() } }
+    ]
+  })
+  .populate('author', 'fullNames profileImage')
+  .sort({ publishedAt: -1 })
+  .limit(5)
+  .select('-content');
 
 
-// // @desc    Get featured blog posts
-// // @route   GET /api/blogs/featured
-// // @access  Public
-// const getFeaturedBlogs = asyncHandler(async (req, res) => {
-//   const blogs = await BlogPost.find({
-//     status: 'published',
-//     isFeatured: true,
-//     $or: [
-//       { featuredUntil: { $exists: false } },
-//       { featuredUntil: { $gte: new Date() } }
-//     ]
-//   })
-//   .populate('author', 'fullNames profileImage')
-//   .sort({ publishedAt: -1 })
-//   .limit(5)
-//   .select('-content');
+  res.status(StatusCodes.OK).json({
+    blogs
+  });
 
-//   res.json({
-//     success: true,
-//     blogs
-//   });
-// });
+};
 
 module.exports = {
   createBlog,
   getAllBlogs,
   deleteBlog,
+  updateBlog,
   getSingleBlog,
   likeBlog,
   addComment,
+  getFeaturedBlogs,
+  deleteComment,
 };

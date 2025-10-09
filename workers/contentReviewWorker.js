@@ -13,6 +13,7 @@ const worker = new Worker('content-review-queue', async job => {
     if (contentReviewResult) {
         if (contentReviewResult?.suitable) {
           blog.status = 'published'
+          blog.moderationNotes = ''
         } else {
           blog.status = 'rejected'
           blog.moderationNotes = contentReviewResult?.reason || ''

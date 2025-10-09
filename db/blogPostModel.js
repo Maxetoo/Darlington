@@ -144,6 +144,8 @@ const BlogPostSchema = new mongoose.Schema({
     default: false
   },
 
+  featuredUntil: Date,  
+
   // Contact Information
   contactInfo: {
     email: String,
