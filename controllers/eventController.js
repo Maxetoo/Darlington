@@ -3,6 +3,8 @@ const User = require('../db/userModel');
 const CustomError = require('../errors');
 const {StatusCodes} = require('http-status-codes')
 const eventReviewQueue = require('../events/eventReviewEvent');
+const reviewContent = require('../helpers/content/reviewContent');
+
 
 
 const createEvent = async (req, res) => {
@@ -363,7 +365,7 @@ const likeEvent = async (req, res) => {
 
   if (findLikeIndex > -1) {
     // unlike or remove from like array 
-    event.likes.remove(blog.likes[findLikeIndex])
+    event.likes.remove(event.likes[findLikeIndex])
     event.likeCount -= 1
   } else {
     // like or add to like array
