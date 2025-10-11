@@ -21,8 +21,17 @@ const authorization = (req, res, next) => {
     next()
 }
 
+const checkUser = (req, res, next) => {
+    const authToken = req.signedCookies.token || ''
+    if (authToken) {
+        const user = signJwt(authToken)
+        req.user = user
+    }
+    next()
+}
 
 module.exports = {
     authentication,
     authorization,
+    checkUser
 }

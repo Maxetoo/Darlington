@@ -1,18 +1,17 @@
 const mongoose = require('mongoose');
 
 
-
-const BlogPostSchema = new mongoose.Schema({
-    author: {
+const EventSchema = new mongoose.Schema({
+    publisher: {
         type: mongoose.Types.ObjectId,
         ref: 'User',
-        required: [true, 'Author is required']
+        required: [true, 'Publisher is required']
     },
 
     title: {
         type: String,
         required: [true, 'Title is required'],
-        maxLength: 50,
+        maxLength: 100,
         trim: true,
         unique: true
     },
@@ -25,22 +24,43 @@ const BlogPostSchema = new mongoose.Schema({
         trim: true
     },
 
-    content: {
+    description: {
         type: String,
-        required: [true, 'Content is required'],
+        required: [true, 'Description is required'],
         minLength: 50,
-        maxLength: 2000,
+        maxLength: 300,
     },
 
-    featuredImage: String,
+    images: [{
+        type: String,
+        required: [true, 'Image assest is required'] 
+    }],
 
-    images: [String],
-    videos: [String],
+    bannerImage: {
+        type: String,
+        required: [true, 'Banner image is required']
+    },
+
+    location: {
+        address: String,
+        city: String,
+        state: String,
+        country: String,
+    },
+
+    startDate: {
+        type: Date,
+        required: [true, 'Start date of event is required']
+    },
+
+    endDate: {
+        type: Date,
+        required: [true, 'End date of event is required']
+    },
 
     category: {
         type: String,
         required: [true, 'Category is required'],
-        enum: ['culture', 'food', 'music', 'fashion', 'history', 'travel', 'business', 'lifestyle', 'community', 'other']
     },
 
     tags: [{
@@ -64,20 +84,21 @@ const BlogPostSchema = new mongoose.Schema({
     },
 
     likes: [{
-        user: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        likedAt: {
-            type: Date,
-            default: Date.now
-        }
+      user: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+      },
+      likedAt: {
+        type: Date,
+        default: Date.now
+      }
     }],
-
+    
     likeCount: {
-            type: Number,
-            default: 0
+      type: Number,
+      default: 0
     },
+
 
     // African Culture Focus
     culturalAspects: {
@@ -133,10 +154,7 @@ const BlogPostSchema = new mongoose.Schema({
   },
   moderatedAt: Date,
 
-  // SEO
-  metaTitle: String,
-  metaDescription: String,
-
+  
   // Featured
   isFeatured: {
     type: Boolean,
@@ -144,6 +162,13 @@ const BlogPostSchema = new mongoose.Schema({
   },
 
   featuredUntil: Date,  
+
+  ticketLink: {
+    type: String,
+    required: [true, 'Link to ticket is required']
+  },
+
+
 
   // Contact Information
   contactInfo: {
@@ -157,21 +182,17 @@ const BlogPostSchema = new mongoose.Schema({
     }
   },
 
-  embedding: {
-    type: [String],
-    default: []
-  },
 }, {
     timestamps: true
 })
 
 
 
-BlogPostSchema.index({ author: 1, createdAt: -1 });
-BlogPostSchema.index({ status: 1, publishedAt: -1 });
-BlogPostSchema.index({ category: 1 });
-BlogPostSchema.index({ tags: 1 });
-BlogPostSchema.index({ slug: 1 });
-BlogPostSchema.index({ isFeatured: -1, publishedAt: -1 });
+EventSchema.index({ publisher: 1, createdAt: -1 });
+EventSchema.index({ status: 1, publishedAt: -1 });
+EventSchema.index({ category: 1 });
+EventSchema.index({ tags: 1 });
+EventSchema.index({ slug: 1 });
+EventSchema.index({ isFeatured: -1, publishedAt: -1 });
 
-module.exports = mongoose.model('BlogPost', BlogPostSchema);
+module.exports = mongoose.model('Event', EventSchema);

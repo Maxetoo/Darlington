@@ -193,7 +193,6 @@ const getAllBlogs = async (req, res) => {
 };
 
 
-
 const updateBlog = async (req, res) => {
   const { id } = req.params;
   const userId = req.user?.userId;

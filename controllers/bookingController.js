@@ -14,7 +14,7 @@ const createBooking = async (req, res) => {
    
     const userId = req.user?.userId;
     const {providerId, serviceName, pricingModel, servicePackageDetails, scheduledDate, duration, location, locationDetails, notes, paymentStatus, paymentReference, packageId, customerPhone} = req.body
-
+    
     if (!userId) {
       throw new CustomError.BadRequestError('User not logged in')
     }

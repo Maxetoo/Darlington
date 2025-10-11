@@ -91,6 +91,7 @@ const AuthRouter = require('./routes/authRoute');
 const UserRouter = require('./routes/userRoute')
 const UploadFileRouter = require('./routes/uploadFileRoute');
 const BlogRouter = require('./routes/blogRoute');
+const EventRouter = require('./routes/eventRoute');
 
 
 // API routes  
@@ -98,6 +99,8 @@ app.use('/api/v1/auth', AuthRouter);
 app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/upload', UploadFileRouter);
 app.use('/api/v1/blog', BlogRouter);
+app.use('/api/v1/event', EventRouter);
+
 
 
 // Serve the frontend application
@@ -171,5 +174,6 @@ const startApp = async () => {
 startApp().catch(console.dir);
 require('./workers/embeddingWorker');
 require('./workers/contentReviewWorker');
+require('./workers/eventReviewWorker')
 // require('./workers/chunkWorker');
 // global.io = io;
