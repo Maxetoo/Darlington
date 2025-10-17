@@ -83,6 +83,14 @@ const UserSchema = new mongoose.Schema({
         default: 'user'
     },
 
+    profileImage: {
+        type: String,
+        required: function() {
+            return this.role === 'service_provider'
+        }
+    },
+
+
     serviceProvider: {
         verificationStatus: {
             type: String,
@@ -155,6 +163,12 @@ const UserSchema = new mongoose.Schema({
             default: 'session'
         },
 
+        currency: {
+            type: String,
+            enum: ['NGN', 'USD', 'EUR', 'GBP'],
+            default: 'USD'
+        },
+
         pricing: {
             hourlyRate: {
                 type: Number,
@@ -176,12 +190,12 @@ const UserSchema = new mongoose.Schema({
 
         serviceRadius: {
             type: Number,
-            default: 10 // km
+            default: 10
         },
 
         isLocked: {
             type: Boolean,
-            default: false // active when booking is in session
+            default: false
         },
 
         averageRating: {
@@ -204,13 +218,6 @@ const UserSchema = new mongoose.Schema({
         verifiedAt: Date,
         },
 
-        profileImage: {
-            type: String,
-            required: function() {
-                    return this.role === 'service_provider'
-            }
-        },
-
         phone: {
             type: String,
             required: function() {
@@ -226,15 +233,27 @@ const UserSchema = new mongoose.Schema({
         },
 
         location: {
+            type: {
+                type: String,
+                enum: ['Point'],
+                default: 'Point'
+            },
+            coordinates: {
+                type: [Number], 
+                // required: true,
+                validate: {
+                validator: function (value) {
+                        return value.length === 2 && value.every(num => typeof num === 'number');
+                    },
+                    message: 'Coordinates must be an array of two numbers: [longitude, latitude]'
+                    }
+            },
             address: String,
             city: String,
             state: String,
-            country: String,
-            coordinates: {
-            lat: Number,
-            lng: Number
-            }
+            country: String
         },
+
 
 
         isActive: {
@@ -279,9 +298,9 @@ const UserSchema = new mongoose.Schema({
             default: 'en'
         },
 
-        // user embedding 
+        // service provider embedding 
         embedding: {
-            type: [String],
+            type: [Number],
             default: []
         },
 
@@ -328,7 +347,7 @@ const MAX_LOGIN_ATTEMPTS = 5;
 UserSchema.index({email: 1});
 UserSchema.index({role: 1});
 UserSchema.index({'serviceProvider.profession': 1});
-// UserSchema.index({''})
+UserSchema.index({ 'location.coordinates': '2dsphere' });
 
 // Pre-save middleware 
 
@@ -456,3 +475,5 @@ UserSchema.statics.findOrCreateOAuthUser = async function(profile, provider) {
 
 
 module.exports = mongoose.model('User', UserSchema);
+
+

@@ -14,4 +14,4 @@ UserRoute.route('/getSingleUser/:id').get(authentication, authorization, getSing
 UserRoute.route('/updateSingleUser/:id').patch(authentication, authorization, updateUser)
 UserRoute.route('/deleteSingleUser/:id').delete(authentication, authorization, deleteUser)
 
-module.exports = UserRoute
+module.exports = UserRoute 

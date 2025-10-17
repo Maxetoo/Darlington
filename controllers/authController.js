@@ -1,5 +1,7 @@
 // const crypto = require('crypto');
 const User = require('../db/userModel')
+const imagekit = require('../configs/imageKitConfig');
+const fs = require('fs').promises;
 const CustomError = require('../errors')
 const {StatusCodes} = require('http-status-codes')
 const {createCookies} = require('../handlers/authHandler')
@@ -11,7 +13,7 @@ const embeddingQueue = require('../events/embeddingEvent');
 
 
 const register = async (req, res) => {
-  let { fullNames, email, password, role = 'user', location, serviceProvider, phone } = req.body || {};
+  let { fullNames, email, password, role = 'user', location, serviceProvider, phone, profileImage } = req.body || {};
 
   if (!fullNames || !email || !password) {
     throw new CustomError.BadRequestError('Please fill in full names, email, and password');
@@ -35,7 +37,9 @@ const register = async (req, res) => {
     role,
     location,
     phone,
+    profileImage,
   };
+
 
   // service_provider workflow
   if (role === 'service_provider') {
@@ -49,8 +53,7 @@ const register = async (req, res) => {
       pricingModel,
       pricing,
       portfolio,
-      profileImage,
-      language = 'en',
+      language = 'en', 
     } = serviceProvider || {};
 
     const { governmentId, liveSelfie } = documents || {};
@@ -59,11 +62,11 @@ const register = async (req, res) => {
     serviceProviderErrorLogs({ documents, profession, bio, experience, pricing, portfolio, profileImage, phone });
 
     // validate user identity 
-    const checkUserValidity = await checkForKyc(governmentId, liveSelfie);
+    // const checkUserValidity = await checkForKyc(governmentId, liveSelfie);
 
-    if (!checkUserValidity.isMatch) {
-        throw new CustomError.BadRequestError('KYC verification failed')
-    }
+    // if (!checkUserValidity.isMatch) {
+    //     throw new CustomError.BadRequestError('KYC verification failed')
+    // }
 
     let createProviderServices = {
       verificationStatus: 'pending',
@@ -76,7 +79,6 @@ const register = async (req, res) => {
       pricingModel,
       pricing,
       portfolio,
-      profileImage,
       language, 
       phone,
     };
@@ -91,8 +93,7 @@ const register = async (req, res) => {
     // add background queue for embedding for service providers 
     await embeddingQueue.add('generate-embedding', {
         userId: user._id.toString(),
-        text: `Fullnames: ${user.fullNames}
-        Email: ${user.email} 
+        text: `Fullnames: ${user.fullNames} 
         Location: ${user.location || ''} 
         Service: ${user?.serviceProvider?.profession || ''}
         Service Description: ${user?.serviceProvider?.bio || ''}
@@ -115,8 +116,182 @@ const register = async (req, res) => {
         }`,
     });
 
-
 };
+
+// const register = async (req, res) => {
+//   let { fullNames, email, password, role = 'user', location, phone } = req.body || {};
+
+//   if (!fullNames || !email || !password) {
+//     throw new CustomError.BadRequestError('Please fill in full names, email, and password');
+//   }
+
+//   if (role === 'admin') {
+//     throw new CustomError.BadRequestError('Not authorised');
+//   }
+
+//   const userExists = await User.findOne({ email });
+//   if (userExists) {
+//     throw new CustomError.BadRequestError('User already exists with this email');
+//   }
+
+//   let userData = {
+//     fullNames,
+//     email,
+//     password,
+//     role,
+//     location,
+//     phone
+//   };
+
+//   if (role === 'service_provider') {
+//     // Check for uploaded files instead of URLs
+//     if (!req.files || !req.files.governmentId || !req.files.liveSelfie) {
+//       throw new CustomError.BadRequestError('Government ID and live selfie files are required');
+//     }
+
+//     const { governmentId, liveSelfie } = req.files;
+
+//     // Validate allowed file types for government documents
+//     const allowedIdTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+//     const allowedSelfieTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+
+//     if (!allowedIdTypes.includes(governmentId.mimetype)) {
+//       throw new CustomError.BadRequestError('Government ID must be JPEG, PNG, or PDF');
+//     }
+
+//     if (!allowedSelfieTypes.includes(liveSelfie.mimetype)) {
+//       throw new CustomError.BadRequestError('Selfie must be JPEG or PNG');
+//     }
+
+//     // Get other service provider data
+//     const {
+//       profession,
+//       businessName,
+//       bio,
+//       experience,
+//       availability,
+//       pricingModel,
+//       pricing,
+//       language = 'en',
+//       currency = 'USD',
+//     } = req.body.serviceProvider || req.body || {};
+
+//     // Get portfolio and profile image from files
+//     const profileImage = req.files.profileImage ? req.files.profileImage : null;
+//     const portfolioFiles = req.files.portfolio ? 
+//       (Array.isArray(req.files.portfolio) ? req.files.portfolio : [req.files.portfolio]) : [];
+
+//     serviceProviderErrorLogs({ 
+//       profession, 
+//       bio, 
+//       experience, 
+//       pricing, 
+//       portfolio: portfolioFiles.length > 0,
+//       profileImage: !!profileImage,
+//       phone 
+//     });
+
+//     // Upload profile image if provided
+//     let profileImageUrl = null;
+//     if (profileImage) {
+//       const imgBuffer = await fs.readFile(profileImage.tempFilePath);
+//       const imgResult = await imagekit.upload({
+//         file: imgBuffer.toString('base64'),
+//         fileName: profileImage.name,
+//         folder: 'Dafricom'
+//       });
+//       profileImageUrl = imgResult.url;
+//       await fs.unlink(profileImage.tempFilePath);
+//     }
+
+//     // Upload portfolio files 
+//     const portfolioUrls = [];
+//     if (portfolioFiles.length > 0) {
+//       const imagekit = require('../configs/imageKitConfig');
+//       const fs = require('fs').promises;
+
+//       for (const file of portfolioFiles) {
+//         const buffer = await fs.readFile(file.tempFilePath);
+//         const result = await imagekit.upload({
+//           file: buffer.toString('base64'),
+//           fileName: file.name,
+//           folder: 'AURA/portfolio'
+//         });
+//         portfolioUrls.push(result.url);
+//         await fs.unlink(file.tempFilePath);
+//       }
+//     }
+
+//     // Initiate KYC verification (files will be deleted automatically)
+//     const kycResult = await checkForKyc(governmentId, liveSelfie);
+
+//     let createProviderServices = {
+//       verificationStatus: 'pending',
+//       profession,
+//       businessName,
+//       bio,
+//       experience,
+//       availability,
+//       pricingModel,
+//       pricing,
+//       portfolio: portfolioUrls,
+//       language,
+//       phone,
+//     };
+
+//     userData.serviceProvider = createProviderServices;
+//     userData.profileImage = profileImageUrl;
+
+//     // Create user first
+//     const user = await User.create(userData);
+
+//     // Create KYC verification record (NO DOCUMENT URLS STORED)
+//     await KycVerification.create({
+//       userId: user._id,
+//       verificationId: kycResult.verificationId,
+//       status: 'processing',
+//       documentMetadata: {
+//         governmentIdSubmittedAt: new Date(),
+//         selfieSubmittedAt: new Date()
+//       }
+//     });
+  
+//     // Add to embedding queue 
+//     await embeddingQueue.add('generate-embedding', {
+//       userId: user._id.toString(),
+//       text: `Fullnames: ${user.fullNames} Email: ${user.email} Location: ${user.location || ''} Service: ${user?.serviceProvider?.profession || ''} Service Description: ${user?.serviceProvider?.bio || ''}`,
+//     });
+
+//     const token = {
+//       userId: user._id,
+//       role: user.role
+//     };
+
+//     createCookies(res, token);
+
+//     return res.status(StatusCodes.CREATED).json({
+//       success: true,
+//       message: 'Registration completed! KYC verification is in progress. You will receive an email once approved.',
+//       verificationId: kycResult.verificationId
+//     });
+//   }
+
+//   // Regular user creation
+//   const user = await User.create(userData);
+
+//   const token = {
+//     userId: user._id,
+//     role: user.role
+//   };
+
+//   createCookies(res, token);
+
+//   res.status(StatusCodes.CREATED).json({
+//     success: true,
+//     message: 'Registration completed! Check your email for verification',
+//   });
+// };
+
 
 
 const login = async(req, res) => {
@@ -318,5 +493,6 @@ module.exports = {
   forgotPassword,
   resetPassword,
   login,
-  testVerification
+  testVerification,
+  logout
 };

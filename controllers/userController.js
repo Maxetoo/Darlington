@@ -3,8 +3,6 @@ const CustomError = require('../errors')
 const { StatusCodes } = require('http-status-codes')
 
 
-
-
 // get me 
 const myProfile = async(req, res) => {
     const {userId} = req.user

@@ -1,3 +1,5 @@
+const CustomError = require('../../errors')
+
 // validation for service providers
 const serviceProviderErrorLogs = ({ documents, profession, bio, experience, pricing, portfolio, profileImage, phone }) => {
   // check for verification documents 
@@ -25,14 +27,15 @@ const serviceProviderErrorLogs = ({ documents, profession, bio, experience, pric
     throw new CustomError.BadRequestError(`Pricing per session needs to be specified`);
   }
 
-  // check for profile picture 
-  if (!profileImage) {
-    throw new CustomError.BadRequestError(`Profile image is required`);
-  }
 
   // check for portfolio 
   if (!portfolio || portfolio.length < 1) {
     throw new CustomError.BadRequestError(`Attach portfolio to show work experience`);
+  }
+
+  // check for profile image
+  if (!profileImage) {
+    throw new CustomError.BadRequestError(`Profile image is required`);
   }
 
   // check for phone number 

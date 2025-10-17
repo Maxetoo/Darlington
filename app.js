@@ -10,7 +10,6 @@ const mongoose = require('mongoose');
 const { SitemapStream, streamToPromise } = require('sitemap');
 const { Readable } = require('stream');
 const { MongoClient, ServerApiVersion } = require('mongodb');
-const {loadModels} = require('./helpers/auth/checkForKyc')
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const passport = require('./configs/passport');
@@ -92,6 +91,7 @@ const UserRouter = require('./routes/userRoute')
 const UploadFileRouter = require('./routes/uploadFileRoute');
 const BlogRouter = require('./routes/blogRoute');
 const EventRouter = require('./routes/eventRoute');
+const ServiceSearchRouter = require('./routes/serviceSearchRoute');
 
 
 // API routes  
@@ -100,6 +100,7 @@ app.use('/api/v1/user', UserRouter);
 app.use('/api/v1/upload', UploadFileRouter);
 app.use('/api/v1/blog', BlogRouter);
 app.use('/api/v1/event', EventRouter);
+app.use('/api/v1/search', ServiceSearchRouter);
 
 
 
@@ -150,8 +151,8 @@ const startApp = async () => {
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
-    await loadModels();
-    console.log('Models loaded')
+    // await loadModels();
+    // console.log('Models loaded')
     // Start the server
     server.listen(port, () => {
       console.log(`App is listening on port ${port}`);

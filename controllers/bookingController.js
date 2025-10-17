@@ -4,9 +4,6 @@ const {StatusCodes} = require('http-status-codes')
 const CustomError = require('../errors')
 
 
-// const searchServiceProvider = async (req, res) => {
-
-// }
 
 
 const createBooking = async (req, res) => {

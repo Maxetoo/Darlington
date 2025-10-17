@@ -1,6 +1,6 @@
 const ai = require('../configs/geminiConfig.js')
 
-export async function getEmbedding(text) {
+const getEmbedding = async(text) => {
     const response = await ai.models.embedContent({
         model: 'gemini-embedding-001',
         contents: text,
@@ -8,3 +8,7 @@ export async function getEmbedding(text) {
 
     return response.embeddings[0].values
 }
+
+module.exports = {
+    getEmbedding
+}  

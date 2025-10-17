@@ -1,12 +1,13 @@
 const express = require('express');
 const AuthRoute = express.Router()
-const { register, testVerification, login, oauthCallback
+const { register, testVerification, login, oauthCallback, logout
 } = require('../controllers/authController');
 const passport = require('../configs/passport')
 
 
 AuthRoute.route('/register').post(register)
 AuthRoute.route('/login').post(login)
+AuthRoute.route('/logout').post(logout)
 AuthRoute.route('/verification').post(testVerification)
 AuthRoute.get('/google', 
     passport.authenticate('google', { 
