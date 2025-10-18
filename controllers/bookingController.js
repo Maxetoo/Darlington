@@ -4,92 +4,112 @@ const {StatusCodes} = require('http-status-codes')
 const CustomError = require('../errors')
 
 
+// Helper: validate required fields
+const validateBookingFields = ({ userId, providerId, serviceName, pricingModel, duration, packageId, customerPhone }) => {
+  if (!userId) throw new CustomError.BadRequestError('User not logged in');
+  if (!providerId) throw new CustomError.BadRequestError('Provider ID is required');
+  if (!serviceName) throw new CustomError.BadRequestError('Service name is required');
+  if (pricingModel === 'hourly' && !duration)
+    throw new CustomError.BadRequestError('Duration is required for hourly pricing');
+  if (pricingModel === 'package' && !packageId)
+    throw new CustomError.BadRequestError('Package ID is required for package pricing');
+  if (!customerPhone) throw new CustomError.BadRequestError('Customer phone number is required');
+};
 
+// Helper TO resolve booking location
+const resolveLocationDetails = (location, provider, body) => {
+  if (location === 'provider_location') {
+    return provider.location;
+  }
+
+  if (['customer_location', 'custom'].includes(location)) {
+    const { address, city, state, country, lat, lng } = body;
+    return {
+      address,
+      city,
+      state,
+      country,
+      coordinates: { lat, lng },
+    };
+  }
+
+  return null;
+};
+
+// helper: calculate price
+const calculatePrice = (provider, pricingModel, duration, packageId) => {
+  let price = 0;
+
+  switch (pricingModel) {
+    case 'hourly': {
+      const hourly = provider.pricingModel.find(p => p === 'hourly')
+      hourly > 1 
+
+      // price = hourly ? hourly.amount * duration : 0;
+      break;
+    }
+    case 'session': {
+      const session = provider.pricingModel.find(p => p.type === 'session');
+      price = session ? session.amount : 0;
+      break;
+    }
+    case 'package': {
+      const pack = provider.services.id(packageId);
+      price = pack ? pack.price : 0;
+      break;
+    }
+  }
+
+  return price;
+};
 
 const createBooking = async (req, res) => {
   try {
-   
     const userId = req.user?.userId;
-    const {providerId, serviceName, pricingModel, servicePackageDetails, scheduledDate, duration, location, locationDetails, notes, paymentStatus, paymentReference, packageId, customerPhone} = req.body
-    
-    if (!userId) {
-      throw new CustomError.BadRequestError('User not logged in')
+    const {
+      providerId,
+      serviceName,
+      pricingModel,
+      servicePackageDetails,
+      scheduledDate,
+      duration,
+      location,
+      notes,
+      paymentStatus,
+      paymentReference,
+      packageId,
+      customerPhone,
+    } = req.body;
+
+    // Validate input
+    validateBookingFields({ userId, providerId, serviceName, pricingModel, duration, packageId, customerPhone });
+
+    // 2️⃣ Verify provider
+    const provider = await User.findOne({ _id: providerId, role: 'service_provider' });
+    if (!provider) throw new CustomError.NotFoundError('Service provider not found');
+
+    if (provider.serviceProvider.verificationStatus !== 'approved')
+      throw new CustomError.BadRequestError('Service provider not yet approved');
+    if (provider.isLocked) throw new CustomError.BadRequestError('Service provider is currently booked');
+
+    // 3️⃣ Determine location
+    const locationDetails = resolveLocationDetails(location, provider, req.body);
+    if (location !== 'provider_location' && (!locationDetails || Object.keys(locationDetails).length === 0)) {
+      throw new CustomError.BadRequestError('Location details are required');
     }
 
-    if (!providerId) {
-      throw new CustomError.BadRequestError('Provider id is required')
-    }
-
-    if (!serviceName) {
-      throw new CustomError.BadRequestError('Name of service is required')
-    }
-
-    if (pricingModel === 'hourly' && !duration) {
-      throw new CustomError.BadRequestError('Service duration is required for hourly package')
-    }
-
-    if (pricingModel === 'package' && !packageId) {
-      throw new CustomError.BadRequestError('Package needs to be specified')
-    }
-
-    if (!customerPhone) {
-      throw new CustomError.BadRequestError('Phone number is required')
-    }
-
-
-    // provider
-    const provider = await User.findOne({_id: providerId, role: 'service_provider'});
-
-    if (!provider) {
-        throw new CustomError.NotFoundError(`Service provider not found`)
-    }
-
-    // check if provider is verified 
-    if (provider.serviceProvider.verificationStatus !== 'approved'
-    ) {
-        throw new CustomError.BadRequestError(`Serice provider is ongoing approval`)
-    }
-
-    // check if provider is locked
-    if (provider.isLocked) {
-        throw new CustomError.BadRequestError(`Serice provider is currently booked`)
-    }
-
-    // determine location 
-    // let bookingLocation = {}
-    if (location === 'provider_location') {
-      locationDetails = provider.location
-    } 
-
-    if (location !== 'provider_location') {
-        if (!locationDetails || Object.keys(locationDetails).length === 0) {
-          throw new CustomError.BadRequestError('Fill location details')
-        }
-    }
-
-    // Check overlapping bookings
+    // 4️⃣ Check overlapping bookings
     const overlap = await Booking.findOne({
       providerId,
-      scheduledDate: { $lte: new Date(scheduledDate.getTime() + duration * 60 * 1000) },
-      status: { $in: ['pending', 'confirmed'] }
+      scheduledDate: { $lte: new Date(new Date(scheduledDate).getTime() + duration * 60 * 1000) },
+      status: { $in: ['pending', 'confirmed'] },
     });
+    if (overlap) throw new CustomError.BadRequestError('Provider not available at this time');
 
-    if (overlap) {
-        throw new CustomError.BadRequestError(`Provider not available at this time`)
-    }
+    // 5️⃣ Calculate final price
+    const finalPrice = calculatePrice(provider, pricingModel, duration, packageId);
 
-    // calculate price
-    let finalPrice = 0;
-    if (pricingModel === 'hourly') {
-      finalPrice = provider.pricing.find(p => p.type === 'hourly')?.amount * duration;
-    } else if (pricingType === 'session') {
-      finalPrice = provider.pricing.find(p => p.type === 'session')?.amount;
-    } else if (pricingType === 'package') {
-      const pack = provider.services.id(packageId);
-      finalPrice = pack.price;
-    }
-
-    // Create booking
+    // 6️⃣ Create booking
     const booking = new Booking({
       userId,
       providerId,
@@ -107,28 +127,183 @@ const createBooking = async (req, res) => {
       paymentStatus,
       contactInformation: {
         customerPhone,
-        serviceProviderPhone: provider.phone 
-      }
+        serviceProviderPhone: provider.phone,
+      },
     });
 
     await booking.save();
 
-    // send email notification to user and service provider 
+    // 7️⃣ Emit real-time event
+    req.io.to(providerId.toString()).emit('new_booking_request', booking);
 
-    // Emit socket event to provider
-    req.io.to(providerId.toString()).emit("new_booking_request", booking);
-
-    // Populate booking for response
+    // 8️⃣ Populate for response
     const populatedBooking = await Booking.findById(booking._id)
-    .populate('userId', 'fullNames email')
-    .populate('serviceProvider', 'fullNames email profileImage');
-
+      .populate('userId', 'fullNames email')
+      .populate('serviceProvider', 'fullNames email profileImage');
 
     res.status(StatusCodes.CREATED).json({ booking: populatedBooking });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
   }
 };
+
+
+
+
+// const createBooking = async (req, res) => {
+//   try {
+//     const userId = req.user?.userId;
+//     const {providerId, serviceName, pricingModel, servicePackageDetails, scheduledDate, duration, location, locationDetails, notes, paymentStatus, paymentReference, packageId, customerPhone} = req.body
+    
+//     if (!userId) {
+//       throw new CustomError.BadRequestError('User not logged in')
+//     }
+ 
+//     if (!providerId) {
+//       throw new CustomError.BadRequestError('Provider id is required')
+//     }
+
+//     if (!serviceName) { 
+//       throw new CustomError.BadRequestError('Name of service is required')
+//     }
+
+//     if (pricingModel === 'hourly' && !duration) {
+//       throw new CustomError.BadRequestError('Service duration is required for hourly package')
+//     }
+
+//     if (pricingModel === 'package' && !packageId) {
+//       throw new CustomError.BadRequestError('Package needs to be specified')
+//     }
+
+//     if (!customerPhone) {
+//       throw new CustomError.BadRequestError('Phone number is required')
+//     }
+
+
+//     // provider
+//     const provider = await User.findOne({_id: providerId, role: 'service_provider'});
+
+//     if (!provider) {
+//         throw new CustomError.NotFoundError(`Service provider not found`)
+//     }
+
+//     // check if provider is verified 
+//     if (provider.serviceProvider.verificationStatus !== 'approved'
+//     ) {
+//         throw new CustomError.BadRequestError(`Serice provider is ongoing approval`)
+//     }
+
+//     // check if provider is locked
+//     if (provider.isLocked) {
+//         throw new CustomError.BadRequestError(`Serice provider is currently booked`)
+//     }
+
+//     // determine location 
+//     if (location === 'provider_location') {
+//       locationDetails = provider.location
+//     } else if (location === 'customer_location') {
+//       locationDetails = {
+//         address: req.body.address,
+//         city: req.body.city,
+//         state: req.body.state,
+//         country: req.body.country,
+//         coordinates: {
+//           lat: req.body.lat,
+//           lng: req.body.lng
+//         }
+//       };
+//     } else if (location === 'custom') {
+//       locationDetails = {
+//         address: req.body.address,
+//         city: req.body.city,
+//         state: req.body.state,
+//         country: req.body.country,
+//         coordinates: {
+//           lat: req.body.lat,
+//           lng: req.body.lng
+//         }
+//       };
+//     } else if (location === 'custom') {
+//       locationDetails = {
+//         address: req.body.address,
+//         city: req.body.city,
+//         state: req.body.state,
+//         country: req.body.country,
+//         coordinates: {
+//           lat: req.body.lat,
+//           lng: req.body.lng
+//         }
+//       };
+//     } 
+
+//     if (location !== 'provider_location') {
+//         if (!locationDetails || Object.keys(locationDetails).length === 0) {
+//           throw new CustomError.BadRequestError('Fill location details')
+//         }
+//     }
+
+//     // Check overlapping bookings
+//     const overlap = await Booking.findOne({
+//       providerId,
+//       scheduledDate: { $lte: new Date(scheduledDate.getTime() + duration * 60 * 1000) },
+//       status: { $in: ['pending', 'confirmed'] }
+//     });
+
+//     if (overlap) {
+//         throw new CustomError.BadRequestError(`Provider not available at this time`)
+//     }
+
+//     // calculate price
+//     let finalPrice = 0;
+//     if (pricingModel === 'hourly') {
+//       finalPrice = provider.pricing.find(p => p.type === 'hourly')?.amount * duration;
+//     } else if (pricingType === 'session') {
+//       finalPrice = provider.pricing.find(p => p.type === 'session')?.amount;
+//     } else if (pricingType === 'package') {
+//       const pack = provider.services.id(packageId);
+//       finalPrice = pack.price;
+//     }
+
+//     // Create booking
+//     const booking = new Booking({
+//       userId,
+//       providerId,
+//       serviceName,
+//       servicePrice: finalPrice,
+//       pricingModel,
+//       servicePackageDetails,
+//       scheduledDate,
+//       duration,
+//       status: 'pending',
+//       location,
+//       locationDetails,
+//       notes,
+//       paymentReference,
+//       paymentStatus,
+//       contactInformation: {
+//         customerPhone,
+//         serviceProviderPhone: provider.phone 
+//       }
+//     });
+
+//     await booking.save();
+
+//     // send email notification to user and service provider 
+
+//     // Emit socket event to provider
+//     req.io.to(providerId.toString()).emit("new_booking_request", booking);
+
+//     // Populate booking for response
+//     const populatedBooking = await Booking.findById(booking._id)
+//     .populate('userId', 'fullNames email')
+//     .populate('serviceProvider', 'fullNames email profileImage');
+
+
+//     res.status(StatusCodes.CREATED).json({ booking: populatedBooking });
+//   } catch (error) {
+//     res.status(500).json({ message: error.message });
+//   }
+// };
 
 const userGetAllBookings = async (req, res) => {
   const user = req.user?.userId;

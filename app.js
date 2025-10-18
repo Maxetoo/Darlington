@@ -20,7 +20,7 @@ const compression = require('compression');
 const cors = require('cors'); 
 const cron = require('node-cron');
 const axios = require('axios');
-
+const setUpWebSocketEvents = require('./events/webSocketEvent')
 
 
 
@@ -37,7 +37,7 @@ const io = socketIo(server, {
   }
 });
 
-// setUpWebSocketEvents(io)
+setUpWebSocketEvents(io)
  
 app.set('trust proxy', 1); 
 
@@ -92,6 +92,7 @@ const UploadFileRouter = require('./routes/uploadFileRoute');
 const BlogRouter = require('./routes/blogRoute');
 const EventRouter = require('./routes/eventRoute');
 const ServiceSearchRouter = require('./routes/serviceSearchRoute');
+const BookingRouter = require('./routes/bookingRoute');
 
 
 // API routes  
@@ -101,6 +102,7 @@ app.use('/api/v1/upload', UploadFileRouter);
 app.use('/api/v1/blog', BlogRouter);
 app.use('/api/v1/event', EventRouter);
 app.use('/api/v1/search', ServiceSearchRouter);
+app.use('/api/v1/booking', BookingRouter);
 
 
 

@@ -8,7 +8,7 @@ const searchService = async (req, res) => {
     const {
       searchQuery,
       limit = 10,
-      minScore = 0.5,
+      minScore = 0.75,
       page = 1,
       longitude,
       latitude,

@@ -68,6 +68,14 @@ const register = async (req, res) => {
     //     throw new CustomError.BadRequestError('KYC verification failed')
     // }
 
+    if (pricingModel && !Array.isArray(pricingModel)) {
+      throw new CustomError.BadRequestError('Pricing model must be an array of strings');
+    }
+
+    if (pricingModel && Array.isArray(pricingModel)) {
+        
+    }
+
     let createProviderServices = {
       verificationStatus: 'pending',
       documents,

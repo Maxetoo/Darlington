@@ -35,7 +35,7 @@ const bookingSchema = new mongoose.Schema({
     name: String,
     price: String,
     duration: String,
-    default: null
+    default: {}
   },
 
   scheduledDate: {
@@ -58,7 +58,7 @@ const bookingSchema = new mongoose.Schema({
   location: {
     type: String,
     enum: ['provider_location', 'customer_location', 'custom'],
-    default: 'provider_location'
+    default: 'customer_location'
   },
 
   locationDetails: {

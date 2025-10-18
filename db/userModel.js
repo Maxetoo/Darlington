@@ -158,9 +158,9 @@ const UserSchema = new mongoose.Schema({
         },
 
         pricingModel: {
-            type: String,
+            type: [String],
             enum: ['hourly', 'session', 'package'],
-            default: 'session'
+            default: ['session']
         },
 
         currency: {
@@ -172,15 +172,34 @@ const UserSchema = new mongoose.Schema({
         pricing: {
             hourlyRate: {
                 type: Number,
-                min: 0
+                required: function () {
+                    return this.serviceProvider?.pricingModel?.includes('hourly');
+                },
+                min: [0, 'Hourly rate cannot be negative']
             },
             sessionRate: {
                 type: Number,
-                min: 0
+                required: function () {
+                    return this.serviceProvider?.pricingModel?.includes('session');
+                },
+                min: [0, 'Session rate cannot be negative']
             },
-            packages: [PackageSchema]
+            packages: {
+                type: [PackageSchema],
+                required: function () {
+                    return this.serviceProvider?.pricingModel?.includes('package');
+                },
+                validate: {
+                    validator: function (packages) {
+                    if (this.serviceProvider?.pricingModel?.includes('package')) {
+                        return Array.isArray(packages) && packages.length > 0;
+                    }
+                    return true;
+                    },
+                    message: 'At least one package is required when pricing model includes "package".'
+                }
+            }
         },
-
         portfolio: [{
             type: String,
             required: function() {
